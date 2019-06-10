@@ -1,3 +1,4 @@
+####import pyximport; pyximport.install() not effective xD
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox
@@ -56,14 +57,15 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self.ui.grebtn.toggled.connect(self.aquireGRE)
         self.ui.sebtn.toggled.connect(self.aquireSE)
         self.ui.ssfpbtn.toggled.connect(self.aquireSSFP)
-
+        
         self.ui.UP.clicked.connect(self.up)
-        #self.ui.Down.clicked.connect(self.down)
-        #self.ui.left.clicked.connect(self.left)
-        #self.ui.Right.clicked.connect(self.right)
-        self.ui.zoomIn.clicked.connect(self.zoomIn)
-        #self.ui.zoomOut.clicked.connect(self.zoomOut)
-        #self.ui.link.clicked.connect(self.link)
+        self.ui.Down.clicked.connect(self.down)
+        self.ui.left.clicked.connect(self.left)
+        self.ui.Right.clicked.connect(self.right)
+        self.ui.ZoomIn.clicked.connect(self.zoomIn)
+        self.ui.ZoomOut.clicked.connect(self.zoomOut)
+        self.ui.link.clicked.connect(self.link)
+
 
         # Mouse Events
         self.ui.phantomlbl.setMouseTracking(False)
@@ -108,7 +110,9 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self.drag_x=0
         self.drag_y=0
         self.zoomtype = 'PD'
-       
+        self.KsapceImage=None
+
+
         self.pixelsClicked = [(0, 0), (0, 0), (0, 0)]
         self.pixelSelector = 0
 
@@ -182,9 +186,6 @@ class ApplicationWindow(QtWidgets.QMainWindow):
 
     def showPhantomImage(self):
         self.qimg = qimage2ndarray.array2qimage(self.img)
-        # self.ui.phantomlbl.setAlignment(QtCore.Qt.AlignCenter)
-        # self.ui.phantomlbl.setFixedWidth(self.phantomSize)
-        # self.ui.phantomlbl.setFixedHeight(self.phantomSize)
         self.ui.phantomlbl.setPixmap(QPixmap(self.qimg))
 
     def changePhantomMode(self, value):
@@ -364,6 +365,7 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         signal[:,:,0] = 0
         signal[:,:,1] = 0
         return signal
+
     def IR(self,signal,T1cancel = 1000):
         
         TE = T1cancel * np.log(2)
@@ -446,16 +448,17 @@ class ApplicationWindow(QtWidgets.QMainWindow):
             return 
         if self.acquisition is None:
             self.error('Choose acquisition sequence frist')
+            return 
         else:
             if self.acquisition == 'se':
                 threading.Thread(target=self.spin_echo_reconstruct_image).start()
-            elif self.acquisition == 'ssfp': ## worked using thread and cython #time 3m15s
-                #v = self.prep_startup()
+            elif self.acquisition == 'ssfp': ## worked using thread and cython ##time = 3m15.804s
+                #v = self.prep_startup()  this took 
                 #pool = ThreadPool(processes=1)
                 #asyncResult = pool.apply_async(SSFP_reconstruct_image, (self.phantomSize,v,self.TE,self.TR,self.FA,self.T2,self.T1))
                 #kspc = asyncResult.get()
-                #self.showReconstructedImage(SSFP_reconstruct_image(self.phantomSize,v,self.TE,self.TR,self.FA,self.T2,self.T1))
-                threading.Thread(target=self.SSFP_reconstruct_image).start() #time 2m45s
+                #self.showReconstructedImage(kspc)
+                threading.Thread(target=self.SSFP_reconstruct_image).start() # ##time= 2m42.520s
             elif self.acquisition == 'gre':
                 threading.Thread(target=self.GRE_reconstruct_image).start()
             elif self.acquisition == 'artifact1' :
@@ -482,7 +485,6 @@ class ApplicationWindow(QtWidgets.QMainWindow):
      ###### Prep ##########################################################################################
         vectors = self.startup(vectors)
         vectors = self.preparation(vectors)
-        
 
         for i in range(0, round(self.phantomSize)):
             rotatedMatrix = rotateX(vectors, self.FA)
@@ -499,8 +501,7 @@ class ApplicationWindow(QtWidgets.QMainWindow):
 
             decayedRotatedMatrix[:, :, 0] = 0
             decayedRotatedMatrix[:, :, 1] = 0
-            # vectors = np.zeros((self.phantomSize, self.phantomSize, 3))
-            # vectors[:, :, 2] = 1
+
             self.showKSpace(kSpace)
             print(i)
             vectors = recovery(decayedRotatedMatrix, self.T1, self.TR)
@@ -582,7 +583,6 @@ class ApplicationWindow(QtWidgets.QMainWindow):
 
 
 ########## Artifacts #########################################################################
-
     def artifact1 (self):
         kSpace = np.zeros((self.phantomSize, self.phantomSize), dtype=np.complex_)
         vectors = np.zeros((self.phantomSize, self.phantomSize, 3))
@@ -618,6 +618,39 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         #kSpace = np.fft.fftshift(kSpace)
         kSpace = np.fft.fft2(kSpace)
         self.showReconstructedImage(kSpace)
+
+    def artifact12 (self): ## (;:;:;:)
+        kSpace = np.zeros((self.phantomSize, self.phantomSize), dtype=np.complex_)
+        vectors = np.zeros((self.phantomSize, self.phantomSize, 3))
+        vectors[:, :, 2] = 1    
+   ####### PREP ##########################################################33
+        vectors = self.startup(vectors)
+        vectors = self.preparation(vectors)
+
+        vectors = rotateX(vectors, 20)
+        rotatedMatrix = vectors
+        for i in range(0, round(0.2*self.phantomSize)):
+            decayedRotatedMatrix = decay(rotatedMatrix, self.T2, 0.008)
+            for j in range(0, self.phantomSize):
+                stepX = (360 / self.phantomSize) * i
+                stepY = (360 / self.phantomSize) * j
+                phaseEncodedMatrix = gradientXY(decayedRotatedMatrix, stepY, stepX)
+                sigmaX = np.sum(phaseEncodedMatrix[:, :, 0])
+                sigmaY = np.sum(phaseEncodedMatrix[:, :, 1])
+                valueToAdd = np.complex(sigmaX, sigmaY)
+                kSpace[i, j] = valueToAdd
+
+            rotatedMatrix = recovery(decayedRotatedMatrix,self.T1,0.1)
+
+            self.showKSpace(kSpace)
+            print(i)
+            if i % 2 == 0:
+                vectors = rotateX(rotatedMatrix, -1 * 20 * 2)
+            else:
+                vectors = rotateX(rotatedMatrix, 20 * 2)
+        kSpace = np.fft.fft2(kSpace)
+        self.showReconstructedImage(kSpace)
+
 
     def artifact2(self):
         kSpace = np.zeros((self.phantomSize, self.phantomSize), dtype=np.complex_)
@@ -667,7 +700,6 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         img = img[:]
         # img = np.abs(img)
         img = 20 * np.log(np.abs(img))
-
         qimg = qimage2ndarray.array2qimage(np.abs(img))
         self.ui.kspaceLbl.setPixmap(QPixmap(qimg))
 
@@ -677,6 +709,7 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         img = img - np.min(img)
         img = img * (255 / np.max(img))
         img = np.round(img)
+        self.KsapceImage=deepcopy(img)
         qimg = qimage2ndarray.array2qimage(np.abs(img))
         self.ui.kspaceLbl.setPixmap(QPixmap(qimg))
 
@@ -886,10 +919,13 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         if self.zoomtype == 'PD' :
            self.img=self.PD[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y]
         elif self.zoomtype == 'T1' :
+            #self.zoom=0
             self.img=self.T1[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y]
         elif self.zoomtype == 'T2' :
+           # self.zoom=0
             self.img=self.T2[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y]      
-        self.showPhantomImage()  
+        self.showPhantomImage()
+
     def zoomOut(self):
         self.zoom=self.zoom-1
         if self.zoom==0:
@@ -950,9 +986,16 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self.showPhantomImage()
 
     def link(self):
-        self.img =self.PD [ self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y  ] 
-        self.showKSpace()
-      
+        if self.zoomtype == 'PD' :
+            self.img=self.PD[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y]
+        elif self.zoomtype == 'T1' :
+            self.img=self.T1[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y]
+        elif self.zoomtype == 'T2' :
+            self.img=self.T2[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y]      
+        self.showPhantomImage()
+        
+        self.showReconstructedImage(self.KsapceImage[self.zoom+self.drag_x:self.phantomSize-self.zoom+self.drag_x,self.zoom+self.drag_y:self.phantomSize-self.zoom+self.drag_y])
+
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
